@@ -14,11 +14,14 @@ st.set_page_config(page_title="课程目标达成度分析系统", layout="wide"
 st.title("🎓 基于OBE理念的课程支撑度分析系统")
 st.markdown("### 西京学院商学院 | 教学管理工具")
 
-# ================= 字体设置 (防乱码) =================
-# 优先匹配 macOS 的中文字体
-font_list = ['Heiti TC', 'PingFang HK', 'Arial Unicode MS', 'SimHei', 'Microsoft YaHei']
+# ================= 字体设置 (适配 Streamlit Cloud 云端) =================
+import matplotlib.font_manager as fm
+
+# 关键：将 'WenQuanYi Micro Hei' 放在第一位，这是云端服务器的字体
+# 后面的 Heiti TC 等是留给您本地 Mac 用的，作为备选
+font_list = ['WenQuanYi Micro Hei', 'Heiti TC', 'PingFang HK', 'Arial Unicode MS', 'SimHei']
 plt.rcParams['font.sans-serif'] = font_list
-plt.rcParams['axes.unicode_minus'] = False 
+plt.rcParams['axes.unicode_minus'] = False
 
 # ================= 核心权重配置 =================
 # 输入映射：支持 CSV 里填写 H/M/L 或者 3/2/1 或者 h/m/l
