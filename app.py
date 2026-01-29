@@ -27,7 +27,7 @@ else:
     NETWORK_FONT = 'Heiti TC' 
 
 # ================= 2. 核心配置 =================
-# 常规权重 (用于热力图、网络图、课程贡献度)
+# 常规权重
 WEIGHT_MAP = {
     'H': 3, 'h': 3, '3': 3, 'High': 3,
     'M': 2, 'm': 2, '2': 2, 'Medium': 2,
@@ -35,7 +35,7 @@ WEIGHT_MAP = {
     '': 0, ' ': 0, 'nan': 0
 }
 
-# 特殊权重 (仅用于毕业要求重要度计算：只认H)
+# 特殊权重 (仅用于毕业要求重要度计算)
 WEIGHT_MAP_SPECIAL = {
     'H': 10, 'h': 10, '3': 10, 'High': 10,
     'M': 0, 'm': 0, '2': 0, 'Medium': 0,
@@ -73,7 +73,7 @@ def generate_analysis(uploaded_file):
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
-        # --- 特殊数值化 (H=10, M=0, L=0) ---
+        # --- 特殊数值化 (H=10) ---
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -95,7 +95,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
     download_btn_placeholder = st.empty()
     st.markdown("---")
-    st.info("💡 **审核原则**：\n1. 指标点需 ≥2门H支撑\n2. 指标点需 ≥3门总支撑\n(未达标将自动报警)")
+    st.info("💡 **审核原则**：\n1. 所有指标点需 ≥2门H支撑\n2. 所有指标点需 ≥3门总支撑\n(不满足将自动报警)")
 
 # ================= 5. 主界面 =================
 if uploaded_file is not None:
@@ -200,21 +200,21 @@ if uploaded_file is not None:
                 st.pyplot(fig3)
                 pdf.savefig(fig3, bbox_inches='tight')
 
-            # --- 图表4：指标重要度 (含自动审核) ---
+            # --- 图表4：指标重要度 (【核心修改】：增加薄弱点检测) ---
             with tab4:
                 st.subheader("毕业要求重要程度")
                 
-                # === 自动审核逻辑 (新功能) ===
+                # === 自动审核逻辑 ===
                 weak_warnings = []
                 count_idx = 1
                 for req_name in df_num.columns:
-                    # 统计各等级数量
+                    # 统计各等级支撑数量
                     count_h = (df_num[req_name] == 3).sum()
                     count_m = (df_num[req_name] == 2).sum()
                     count_l = (df_num[req_name] == 1).sum()
                     count_total = count_h + count_m + count_l
                     
-                    # 规则：H < 2 或 总数 < 3
+                    # 审核规则：H < 2 或 总数 < 3
                     if count_h < 2 or count_total < 3:
                         warning_text = (
                             f"【薄弱指标点{count_idx}：{req_name}，"
@@ -224,16 +224,16 @@ if uploaded_file is not None:
                         weak_warnings.append(warning_text)
                         count_idx += 1
                 
-                # 显示报警
+                # 如果有薄弱点，在图表上方显示红色警报
                 if weak_warnings:
                     st.error(f"⚠️ 审核不通过：检测到 {len(weak_warnings)} 个薄弱指标点！")
                     for w in weak_warnings:
-                        st.markdown(f"<span style='color:red; font-weight:bold'>{w}</span>", unsafe_allow_html=True)
+                        st.markdown(f"<span style='color:red'>{w}</span>", unsafe_allow_html=True)
                     st.markdown("---")
                 else:
                     st.success("✅ 审核通过：所有指标点均满足“至少2门H支撑且总支撑≥3门”的要求。")
 
-                # 绘图 (使用 H=10 权重)
+                # 绘图 (继续使用特殊权重 H=10)
                 fig4_height = max(6, num_reqs * 0.4) 
                 fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
                 sorted_imp = req_imp_special.sort_values(ascending=True)
