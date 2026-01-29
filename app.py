@@ -215,4 +215,97 @@ if uploaded_file is not None:
 
                 # === 绘图 ===
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
-                # 注意：绘图用 ascending=True 是因为 barh 从下往上画，
+                # 注意：绘图用 ascending=True 是因为 barh 从下往上画，这样分高的在上面
+                sorted_contrib_asc = course_contrib.sort_values(ascending=True)
+                
+                bar_colors = []
+                text_colors = []
+                for name in sorted_contrib_asc.index:
+                    clean_name = str(name).strip()
+                    if clean_name in GEN_ED_COURSES:
+                        bar_colors.append('#D3D3D3'); text_colors.append('#808080')
+                    elif '*' in clean_name:
+                        bar_colors.append('#FFD700'); text_colors.append('#B8860B')
+                    else:
+                        bar_colors.append('#4682B4'); text_colors.append('black')
+
+                bars = ax3.barh(sorted_contrib_asc.index, sorted_contrib_asc.values, color=bar_colors, edgecolor='none', alpha=0.9)
+                for label, color in zip(ax3.get_yticklabels(), text_colors):
+                    label.set_color(color)
+                    if color != 'black': label.set_fontweight('bold')
+                for i, v in enumerate(sorted_contrib_asc):
+                    ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
+                
+                ax3.set_title("课程贡献度排名\n(🟨核心课程  ⬜通识课程  🟦其他课程)", fontsize=14, pad=15)
+                ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
+                st.pyplot(fig3)
+                pdf.savefig(fig3, bbox_inches='tight')
+
+            # --- 图表4：指标重要度 (含自动审核) ---
+            with tab4:
+                st.subheader("毕业要求重要程度")
+                
+                # === 自动审核逻辑 ===
+                weak_warnings = []
+                count_idx = 1
+                for req_name in df_num.columns:
+                    # 统计各等级数量
+                    count_h = (df_num[req_name] == 3).sum()
+                    count_m = (df_num[req_name] == 2).sum()
+                    count_l = (df_num[req_name] == 1).sum()
+                    count_total = count_h + count_m + count_l
+                    
+                    # 规则：H < 2 或 总数 < 3
+                    if count_h < 2 or count_total < 3:
+                        warning_text = (
+                            f"【薄弱指标点{count_idx}：{req_name}，"
+                            f"该指标点下面有{count_total}门课程支撑，"
+                            f"支撑情况分别是 {count_h}课程H、{count_m}课程M、{count_l}课程L】"
+                        )
+                        weak_warnings.append(warning_text)
+                        count_idx += 1
+                
+                # 显示报警
+                if weak_warnings:
+                    st.error(f"⚠️ 审核不通过：检测到 {len(weak_warnings)} 个薄弱指标点！")
+                    for w in weak_warnings:
+                        st.markdown(f"<span style='color:red; font-weight:bold'>{w}</span>", unsafe_allow_html=True)
+                    st.markdown("---")
+                else:
+                    st.success("✅ 审核通过：所有指标点均满足“至少2门H支撑且总支撑≥3门”的要求。")
+
+                # 绘图 (使用 H=10 权重)
+                fig4_height = max(6, num_reqs * 0.4) 
+                fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
+                sorted_imp = req_imp_special.sort_values(ascending=True)
+                sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
+                for i, v in enumerate(sorted_imp):
+                    ax4.text(v + 0.5, i, str(int(v)), va='center', fontweight='bold')
+                
+                ax4.set_title("毕业要求重要程度排名\n(计算依据：仅统计强支撑 H=10，M和L不计入)", fontsize=14, pad=15)
+                ax4.set_xlabel("重要程度分值 (H=10)")
+                
+                st.pyplot(fig4)
+                pdf.savefig(fig4, bbox_inches='tight')
+
+        download_btn_placeholder.download_button(
+            label="📥 点击下载最终版报告 (PDF)",
+            data=pdf_buffer.getvalue(),
+            file_name="西京学院商学院_课程体系分析报告.pdf",
+            mime="application/pdf",
+            type="primary"
+        )
+        st.sidebar.success(f"✅ 分析完成！共处理 {num_reqs} 个指标点。")
+
+else:
+    st.info("👈 请在左侧上传文件。")
+
+st.markdown("---")
+st.markdown(
+    '''
+    <div style="text-align: center; color: #888888; font-size: 14px; padding: 10px;">
+        版权所有 © 西京学院商学院
+    </div>
+    ''',
+    unsafe_allow_html=True
+)
