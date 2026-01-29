@@ -11,11 +11,11 @@ import matplotlib.font_manager as fm
 import platform
 
 # ================= 页面配置 =================
-st.set_page_config(page_title="专业课程体系与毕业要求关联度矩阵分析系统", layout="wide")
-st.title("🎓 基于OBE理念的专业课程体系与毕业要求关联度矩阵分析系统")
-st.markdown("### 西京学院商学院 | 人才培养方案修订辅助管理工具")
+st.set_page_config(page_title="课程目标达成度分析系统", layout="wide")
+st.title("🎓 基于OBE理念的课程支撑度分析系统")
+st.markdown("### 西京学院商学院 | 教学管理工具")
 
-# ================= 字体设置 =================
+# ================= 1. 字体设置 =================
 font_list = ['WenQuanYi Micro Hei', 'Heiti TC', 'PingFang HK', 'Arial Unicode MS', 'SimHei']
 plt.rcParams['font.sans-serif'] = font_list
 plt.rcParams['axes.unicode_minus'] = False 
@@ -26,7 +26,7 @@ if system_name == "Linux":
 else:
     NETWORK_FONT = 'Heiti TC' 
 
-# ================= 核心权重配置 =================
+# ================= 2. 核心权重与通识课配置 =================
 WEIGHT_MAP = {
     'H': 3, 'h': 3, '3': 3, 'High': 3,
     'M': 2, 'm': 2, '2': 2, 'Medium': 2,
@@ -36,7 +36,16 @@ WEIGHT_MAP = {
 COLOR_MAP = {3: '#FF4500', 2: '#FF8C00', 1: '#FFD700', 0: '#FFFFFF'}
 REVERSE_LABEL_MAP = {3: 'H', 2: 'M', 1: 'L', 0: ''}
 
-# ================= 分析逻辑 =================
+# 【新增】通识课程名单 (精确匹配)
+GEN_ED_COURSES = [
+    '思想道德与法治', '中国近现代史纲要', '马克思主义基本原理', '毛泽东思想和中国特色社会主义理论体系概论', 
+    '习近平新时代中国特色社会主义思想概论', '形势与政策', '国家安全教育', '大学生心理健康教育', 
+    '体育1-4', '劳动教育', '生涯教育与就业创业指导', '大学英语A1-4', '高等数学B1-2', '线性代数B', 
+    '概率论与数理统计B', '大学计算机基础', '人工智能', '军事理论', '军事技能', '人文素养与社会科学', 
+    '艺术修养与审美体验', '科技进步与生态文明', '创新思维与创业教育'
+]
+
+# ================= 3. 分析逻辑 =================
 def generate_analysis(uploaded_file):
     try:
         if uploaded_file.name.endswith('.csv'):
@@ -62,26 +71,21 @@ def generate_analysis(uploaded_file):
         st.error(f"文件处理出错: {e}")
         return None
 
-# ================= 侧边栏 (布局优化) =================
+# ================= 4. 侧边栏 =================
 with st.sidebar:
     st.header("📂 数据中心")
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
-    
-    # 【修改点1】设置一个空位置（占位符），用于稍后放入下载按钮
-    # 这样可以保证按钮出现在“文件上传”下面，但在“提示信息”上面
     download_btn_placeholder = st.empty()
-    
     st.markdown("---")
-    st.info("💡 **提示**：\n1. 系统自动识别所有指标点列\n2. 支持 .xlsx/.csv 格式\n3. 左侧将自动生成下载按钮")
+    st.info("💡 **提示**：\n1. 系统自动识别 *号为专业核心课（显示黄色）\n2. 自动识别通识课（显示灰色）\n3. 其他课程显示蓝色")
 
-# ================= 主界面 =================
+# ================= 5. 主界面 =================
 if uploaded_file is not None:
     results = generate_analysis(uploaded_file)
     
     if results:
         df_num, df_display_labels, course_names, req_names, course_contrib, req_imp = results
         
-        # 字体自适应
         num_reqs = len(req_names)
         if num_reqs <= 12:
             dynamic_font_size = 11
@@ -94,7 +98,7 @@ if uploaded_file is not None:
         
         with PdfPages(pdf_buffer) as pdf:
             
-            tab1, tab2, tab3, tab4 = st.tabs(["课程矩阵热力图", "课程毕业要求支撑网络图", "课程贡献排名", "毕业要求指标重要度"])
+            tab1, tab2, tab3, tab4 = st.tabs(["矩阵热力图", "支撑网络图", "课程贡献排名", "指标重要度"])
             
             # --- 图表1：矩阵热力图 ---
             with tab1:
@@ -112,7 +116,7 @@ if uploaded_file is not None:
                 st.pyplot(fig1) 
                 pdf.savefig(fig1, bbox_inches='tight') 
 
-            # --- 图表2：网络图 (修改：字体分级) ---
+            # --- 图表2：网络图 ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
                 fig2, ax2 = plt.subplots(figsize=(16 if num_reqs > 15 else 14, 12))
@@ -134,31 +138,57 @@ if uploaded_file is not None:
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=0.6, ax=ax2)
                 
-                # 【修改点2】分两步绘制标签，实现不同字体大小
-                # 第一步：绘制左侧“课程名称”，强制使用小号字体 (例如 8 号)
                 nx.draw_networkx_labels(G, pos, labels={n:n for n in course_names}, 
                                       font_family=NETWORK_FONT, font_size=8, ax=ax2,
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
-                
-                # 第二步：绘制右侧“毕业要求”，使用稍大字体 (例如 10 号)
                 nx.draw_networkx_labels(G, pos, labels={n:n for n in req_names}, 
                                       font_family=NETWORK_FONT, font_size=10, ax=ax2,
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
-
                 ax2.axis('off')
                 st.pyplot(fig2)
                 pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献 ---
+            # --- 图表3：课程贡献 (【核心修改】：颜色区分逻辑) ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
                 sorted_contrib = course_contrib.sort_values(ascending=True)
-                sorted_contrib.plot(kind='barh', color='#4682B4', ax=ax3, edgecolor='black', alpha=0.8)
+                
+                # --- 颜色计算逻辑 ---
+                bar_colors = []
+                text_colors = []
+                
+                for name in sorted_contrib.index:
+                    clean_name = str(name).strip()
+                    # 1. 优先判断是否为通识课
+                    if clean_name in GEN_ED_COURSES:
+                        bar_colors.append('#D3D3D3') # 浅灰条
+                        text_colors.append('#808080') # 深灰字
+                    # 2. 判断是否包含 * 号 (专业核心课)
+                    elif '*' in clean_name:
+                        bar_colors.append('#FFD700') # 亮金条
+                        text_colors.append('#B8860B') # 暗金字 (为了看清)
+                    # 3. 其他默认
+                    else:
+                        bar_colors.append('#4682B4') # 默认蓝
+                        text_colors.append('black')  # 默认黑
+
+                # 绘图
+                bars = ax3.barh(sorted_contrib.index, sorted_contrib.values, color=bar_colors, edgecolor='none', alpha=0.9)
+                
+                # 设置Y轴文字颜色
+                for label, color in zip(ax3.get_yticklabels(), text_colors):
+                    label.set_color(color)
+                    # 如果是黄色或灰色，加粗一点以便阅读
+                    if color != 'black':
+                        label.set_fontweight('bold')
+
+                # 数值标签
                 for i, v in enumerate(sorted_contrib):
-                    ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold')
-                ax3.set_title("课程贡献度排名\n(计算依据：H=3, M=2, L=1 累加)", fontsize=14, pad=15)
-                ax3.set_xlabel("贡献度分值")
+                    ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
+                
+                ax3.set_title("课程贡献度排名\n(🟨核心课程  ⬜通识课程  🟦其他课程)", fontsize=14, pad=15)
+                ax3.set_xlabel("贡献度分值 (H=3, M=2, L=1)")
                 st.pyplot(fig3)
                 pdf.savefig(fig3, bbox_inches='tight')
 
@@ -176,13 +206,12 @@ if uploaded_file is not None:
                 st.pyplot(fig4)
                 pdf.savefig(fig4, bbox_inches='tight')
 
-        # 【修改点1后续】分析完成后，在侧边栏的占位符处渲染下载按钮
         download_btn_placeholder.download_button(
             label="📥 点击下载最终版报告 (PDF)",
             data=pdf_buffer.getvalue(),
             file_name="西京学院商学院_课程体系分析报告.pdf",
             mime="application/pdf",
-            type="primary"  # 设为主要按钮，更显眼
+            type="primary"
         )
         st.sidebar.success("✅ 分析报告已生成！")
 
@@ -194,7 +223,7 @@ st.markdown("---")
 st.markdown(
     '''
     <div style="text-align: center; color: #888888; font-size: 14px; padding: 10px;">
-        版权所有 © 西京学院商学院
+        版权所有 © 西京学院商学院 2026年
     </div>
     ''',
     unsafe_allow_html=True
