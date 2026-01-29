@@ -26,7 +26,7 @@ if system_name == "Linux":
 else:
     NETWORK_FONT = 'Heiti TC' 
 
-# ================= 2. 核心权重与通识课配置 =================
+# ================= 2. 核心配置 =================
 WEIGHT_MAP = {
     'H': 3, 'h': 3, '3': 3, 'High': 3,
     'M': 2, 'm': 2, '2': 2, 'Medium': 2,
@@ -36,7 +36,7 @@ WEIGHT_MAP = {
 COLOR_MAP = {3: '#FF4500', 2: '#FF8C00', 1: '#FFD700', 0: '#FFFFFF'}
 REVERSE_LABEL_MAP = {3: 'H', 2: 'M', 1: 'L', 0: ''}
 
-# 【新增】通识课程名单 (精确匹配)
+# 通识课程名单
 GEN_ED_COURSES = [
     '思想道德与法治', '中国近现代史纲要', '马克思主义基本原理', '毛泽东思想和中国特色社会主义理论体系概论', 
     '习近平新时代中国特色社会主义思想概论', '形势与政策', '国家安全教育', '大学生心理健康教育', 
@@ -77,7 +77,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
     download_btn_placeholder = st.empty()
     st.markdown("---")
-    st.info("💡 **提示**：\n1. 系统自动识别 *号为专业核心课（显示黄色）\n2. 自动识别通识课（显示灰色）\n3. 其他课程显示蓝色")
+    st.info("💡 **提示**：\n已开启超高密度模式，支持 48+ 个指标点分析。")
 
 # ================= 5. 主界面 =================
 if uploaded_file is not None:
@@ -86,13 +86,22 @@ if uploaded_file is not None:
     if results:
         df_num, df_display_labels, course_names, req_names, course_contrib, req_imp = results
         
+        # 【升级】超高密度自适应算法
         num_reqs = len(req_names)
+        
         if num_reqs <= 12:
-            dynamic_font_size = 11
-        elif num_reqs <= 20:
-            dynamic_font_size = 9
+            font_size = 11
+            label_rotation = 45
+            heatmap_width = 12
+        elif num_reqs <= 25:
+            font_size = 9
+            label_rotation = 45
+            heatmap_width = 14
         else:
-            dynamic_font_size = 7
+            # 针对 48 个指标点的特殊处理
+            font_size = 6        # 极小字体
+            label_rotation = 90  # 垂直排列，防止重叠
+            heatmap_width = 18   # 拉宽画布
             
         pdf_buffer = BytesIO()
         
@@ -102,24 +111,32 @@ if uploaded_file is not None:
             
             # --- 图表1：矩阵热力图 ---
             with tab1:
-                st.subheader(f"课程 - 毕业要求支撑矩阵")
+                st.subheader(f"课程 - 毕业要求支撑矩阵 (指标点数: {num_reqs})")
                 fig_height = max(10, len(course_names) * 0.6)
-                fig1, ax1 = plt.subplots(figsize=(12, fig_height))
+                # 使用动态宽度
+                fig1, ax1 = plt.subplots(figsize=(heatmap_width, fig_height))
+                
                 cmap = ListedColormap(['#f5f5f5', '#FFD700', '#FF8C00', '#FF4500'])
                 sns.heatmap(df_num, annot=df_display_labels.values, fmt='', cmap=cmap, cbar=False, 
                             linewidths=0.5, linecolor='gray', ax=ax1, vmin=0, vmax=3,
-                            annot_kws={"size": dynamic_font_size, "color": "black", "weight": "bold"}) 
+                            annot_kws={"size": font_size, "color": "black", "weight": "bold"}) 
+                
                 ax1.set_ylabel('课程名称', fontsize=12)
                 ax1.xaxis.tick_top()
                 ax1.xaxis.set_label_position('top') 
-                ax1.set_xticklabels(req_names, rotation=45, ha='left', fontsize=dynamic_font_size)
+                # 【修改】使用动态旋转角度
+                ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
+                
                 st.pyplot(fig1) 
                 pdf.savefig(fig1, bbox_inches='tight') 
 
             # --- 图表2：网络图 ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                fig2, ax2 = plt.subplots(figsize=(16 if num_reqs > 15 else 14, 12))
+                # 【修改】如果指标点多，大幅拉高图表，给右侧圆点留空间
+                net_height = max(12, num_reqs * 0.6)
+                fig2, ax2 = plt.subplots(figsize=(16, net_height))
+                
                 G = nx.Graph()
                 G.add_nodes_from(course_names, bipartite=0)
                 G.add_nodes_from(req_names, bipartite=1)
@@ -136,73 +153,66 @@ if uploaded_file is not None:
                 
                 nx.draw_networkx_nodes(G, pos, nodelist=course_names, node_color='#87CEEB', node_size=300, ax=ax2)
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
-                nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=0.6, ax=ax2)
+                
+                # 【修改】密集时降低透明度，防止糊成一团
+                line_alpha = 0.4 if num_reqs > 30 else 0.6
+                nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
                 nx.draw_networkx_labels(G, pos, labels={n:n for n in course_names}, 
                                       font_family=NETWORK_FONT, font_size=8, ax=ax2,
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
+                
+                # 右侧标签字体
+                right_font = 8 if num_reqs > 30 else 10
                 nx.draw_networkx_labels(G, pos, labels={n:n for n in req_names}, 
-                                      font_family=NETWORK_FONT, font_size=10, ax=ax2,
+                                      font_family=NETWORK_FONT, font_size=right_font, ax=ax2,
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
                 ax2.axis('off')
                 st.pyplot(fig2)
                 pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献 (【核心修改】：颜色区分逻辑) ---
+            # --- 图表3：课程贡献 ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
                 sorted_contrib = course_contrib.sort_values(ascending=True)
                 
-                # --- 颜色计算逻辑 ---
                 bar_colors = []
                 text_colors = []
-                
                 for name in sorted_contrib.index:
                     clean_name = str(name).strip()
-                    # 1. 优先判断是否为通识课
                     if clean_name in GEN_ED_COURSES:
-                        bar_colors.append('#D3D3D3') # 浅灰条
-                        text_colors.append('#808080') # 深灰字
-                    # 2. 判断是否包含 * 号 (专业核心课)
+                        bar_colors.append('#D3D3D3'); text_colors.append('#808080')
                     elif '*' in clean_name:
-                        bar_colors.append('#FFD700') # 亮金条
-                        text_colors.append('#B8860B') # 暗金字 (为了看清)
-                    # 3. 其他默认
+                        bar_colors.append('#FFD700'); text_colors.append('#B8860B')
                     else:
-                        bar_colors.append('#4682B4') # 默认蓝
-                        text_colors.append('black')  # 默认黑
+                        bar_colors.append('#4682B4'); text_colors.append('black')
 
-                # 绘图
                 bars = ax3.barh(sorted_contrib.index, sorted_contrib.values, color=bar_colors, edgecolor='none', alpha=0.9)
                 
-                # 设置Y轴文字颜色
                 for label, color in zip(ax3.get_yticklabels(), text_colors):
                     label.set_color(color)
-                    # 如果是黄色或灰色，加粗一点以便阅读
-                    if color != 'black':
-                        label.set_fontweight('bold')
+                    if color != 'black': label.set_fontweight('bold')
 
-                # 数值标签
                 for i, v in enumerate(sorted_contrib):
                     ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
                 
                 ax3.set_title("课程贡献度排名\n(🟨核心课程  ⬜通识课程  🟦其他课程)", fontsize=14, pad=15)
-                ax3.set_xlabel("贡献度分值 (H=3, M=2, L=1)")
+                ax3.set_xlabel("贡献度分值")
                 st.pyplot(fig3)
                 pdf.savefig(fig3, bbox_inches='tight')
 
-            # --- 图表4：指标重要度 ---
+            # --- 图表4：指标重要度 (高度自适应) ---
             with tab4:
                 st.subheader("毕业要求重要程度")
-                fig4_height = max(6, num_reqs * 0.5) 
+                # 【修改】高度完全取决于指标数量，确保48条也能放下
+                fig4_height = max(6, num_reqs * 0.4) 
                 fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
                 sorted_imp = req_imp.sort_values(ascending=True)
                 sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
                 for i, v in enumerate(sorted_imp):
                     ax4.text(v + 0.5, i, str(int(v)), va='center', fontweight='bold')
-                ax4.set_title("毕业要求重要程度排名\n(计算依据：各指标点下 H=3, M=2, L=1 累加)", fontsize=14, pad=15)
-                ax4.set_xlabel("重要程度分值")
+                ax4.set_title("毕业要求重要程度排名", fontsize=14, pad=15)
                 st.pyplot(fig4)
                 pdf.savefig(fig4, bbox_inches='tight')
 
@@ -213,17 +223,16 @@ if uploaded_file is not None:
             mime="application/pdf",
             type="primary"
         )
-        st.sidebar.success("✅ 分析报告已生成！")
+        st.sidebar.success(f"✅ 分析完成！共处理 {num_reqs} 个指标点。")
 
 else:
     st.info("👈 请在左侧上传文件。")
 
-# ================= 底部版权 =================
 st.markdown("---")
 st.markdown(
     '''
     <div style="text-align: center; color: #888888; font-size: 14px; padding: 10px;">
-        版权所有 © 西京学院商学院 2026年
+        版权所有 © 西京学院商学院
     </div>
     ''',
     unsafe_allow_html=True
