@@ -30,7 +30,9 @@ else:
 
 # 权重配置
 WEIGHT_MAP = {'H': 3, 'h': 3, '3': 3, 'High': 3, 'M': 2, 'm': 2, '2': 2, 'Medium': 2, 'L': 1, 'l': 1, '1': 1, 'Low': 1, '': 0, ' ': 0, 'nan': 0}
+# 特殊权重 (仅用于毕业要求重要度计算)
 WEIGHT_MAP_SPECIAL = {'H': 10, 'h': 10, '3': 10, 'High': 10, 'M': 0, 'm': 0, '2': 0, 'Medium': 0, 'L': 0, 'l': 0, '1': 0, 'Low': 0, '': 0, ' ': 0, 'nan': 0}
+
 COLOR_MAP = {3: '#FF4500', 2: '#FF8C00', 1: '#FFD700', 0: '#FFFFFF'}
 REVERSE_LABEL_MAP = {3: 'H', 2: 'M', 1: 'L', 0: ''}
 
@@ -148,11 +150,13 @@ def generate_analysis(uploaded_file):
         req_data = df_raw.iloc[:, 2:] 
         req_names = req_data.columns.tolist()
         
+        # 1. 常规数值化 (用于 课程贡献度 & 左侧节点计算)
         df_num = req_data.copy()
         for col in df_num.columns:
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
+        # 2. 特殊数值化 (用于 指标重要度 & 右侧节点计算)
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -160,8 +164,9 @@ def generate_analysis(uploaded_file):
 
         df_display_labels = df_num.applymap(lambda x: REVERSE_LABEL_MAP.get(x, ''))
         
-        course_contribution = df_num.sum(axis=1)
-        req_importance_special = df_num_special.sum(axis=0)
+        # 计算
+        course_contribution = df_num.sum(axis=1) # 3H+2M+1L
+        req_importance_special = df_num_special.sum(axis=0) # H*10
         
         audit_logs = run_full_audit(df_num, course_contribution)
         
@@ -214,22 +219,25 @@ if uploaded_file is not None:
                 ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
                 st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight') 
 
-            # --- 图表2：网络图 (【核心升级】：节点动态大小 + 数值标注) ---
+            # --- 图表2：网络图 (【核心升级】：左右双逻辑计算节点大小) ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
                 
-                # A. 排序与数值计算
-                h_counts = (df_num == 3).sum(axis=1)
-                h_contrib_for_sort = h_counts * 10
-                sorted_course_names = h_contrib_for_sort.sort_values(ascending=True).index.tolist()
+                # === 左侧课程：按综合贡献度 (3H+2M+1L) 排序与大小 ===
+                # 这里的 course_contrib 已经是 3H+2M+1L
+                sorted_course_names = course_contrib.sort_values(ascending=True).index.tolist()
                 
-                # B. 计算左侧节点大小 (Based on Value)
-                # 基础大小 100，每10分增加 100 大小，防止过大或过小
-                # 如果值为0，大小为100；如果值为90，大小为1000
-                sorted_values = [h_contrib_for_sort[c] for c in sorted_course_names]
-                course_node_sizes = [100 + v * 10 for v in sorted_values]
+                # 计算左侧节点大小 (100基础 + 分值*15)
+                sorted_course_values = [course_contrib[c] for c in sorted_course_names]
+                course_node_sizes = [100 + v * 15 for v in sorted_course_values]
 
-                # C. 坐标设置
+                # === 右侧指标：按 H支撑度 (H*10) 计算大小 ===
+                # req_imp_special 已经是 H*10
+                # 顺序保持原样 (req_names)
+                req_values = [req_imp_special[r] for r in req_names]
+                req_node_sizes = [100 + v * 8 for v in req_values] # 系数调小点因为 H*10 值比较大
+
+                # === 坐标设置 ===
                 pos = {}
                 y_course = np.linspace(0, 1, len(sorted_course_names))
                 for i, course in enumerate(sorted_course_names):
@@ -239,7 +247,7 @@ if uploaded_file is not None:
                 for i, req in enumerate(req_names):
                     pos[req] = np.array([1, y_req[i]])
                 
-                # D. 绘图
+                # === 绘图 ===
                 net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
                 fig2, ax2 = plt.subplots(figsize=(14, net_height))
                 
@@ -250,42 +258,40 @@ if uploaded_file is not None:
                 edges, colors, widths = [], [], []
                 for c in sorted_course_names:
                     for r in req_names:
-                        w = df_num.loc[c, r]
+                        w = df_num.loc[c, r] # 连线颜色还是用 3/2/1
                         if w > 0:
                             G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.6)
                 
                 # 绘制节点
-                # 左侧：动态大小
                 nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=course_node_sizes, ax=ax2)
-                # 右侧：固定规则
-                req_node_sizes = [300 + G.degree(r) * 80 for r in req_names]
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 
-                # 连线
+                # 绘制连线
                 line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
-                # 绘制标签 (含数值标注)
-                # 构建标签字典：课程名 (分值)
-                left_labels_dict = {c: f"{c} ({int(h_contrib_for_sort[c])})" for c in sorted_course_names}
-                
+                # === 标签 (含数值) ===
+                # 左侧：显示综合贡献度
+                left_labels_dict = {c: f"{c} ({int(course_contrib[c])})" for c in sorted_course_names}
                 label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
                 nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, 
                                       font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right',
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
                 
+                # 右侧：不显示数值，只显示名称 (保持原样)，或根据需求加数值。这里暂只显示名称保持整洁。
+                # 如果想加数值，改为: f"{n} ({int(req_imp_special[n])})"
                 label_pos_right = {n: (x+0.05, y) for n, (x, y) in pos.items() if n in req_names}
                 right_font = 8 if num_reqs > 30 else 10
                 nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, 
                                       font_family=NETWORK_FONT, font_size=right_font, ax=ax2, horizontalalignment='left',
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
                 
-                ax2.set_xlim(-1.6, 1.5) # 稍微加宽左侧边界，容纳数值文字
+                ax2.set_xlim(-1.6, 1.5)
                 ax2.set_ylim(-0.05, 1.05)
                 ax2.axis('off')
                 
-                # 添加标题和计算依据
-                ax2.set_title("支撑关系网络拓扑图\n(左侧课程按H贡献度排序，节点大小及数值代表贡献值; 计算依据: H=10, M=0, L=0)", fontsize=14)
+                # 标题更新
+                ax2.set_title("支撑关系网络拓扑图\n左侧依据：综合贡献 (H*3+M*2+L*1) | 右侧依据：重要度 (H*10)", fontsize=14)
                 
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
