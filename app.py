@@ -8,6 +8,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.backends.backend_pdf import PdfPages
 from io import BytesIO
 import matplotlib.font_manager as fm
+import matplotlib.patches as mpatches  # 【新增】用于绘制标准图例
 import platform
 import math
 import textwrap
@@ -219,25 +220,23 @@ if uploaded_file is not None:
                 ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
                 st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight') 
 
-            # --- 图表2：网络图 (【核心升级】：左右双逻辑计算节点大小) ---
+            # 3. 网络图 (左右双逻辑计算节点大小)
             with tab2:
                 st.subheader("支撑关系网络拓扑")
                 
-                # === 左侧课程：按综合贡献度 (3H+2M+1L) 排序与大小 ===
-                # 这里的 course_contrib 已经是 3H+2M+1L
+                # A. 排序与数值计算
+                # 左侧课程：按综合贡献度 (3H+2M+1L) 排序
                 sorted_course_names = course_contrib.sort_values(ascending=True).index.tolist()
                 
-                # 计算左侧节点大小 (100基础 + 分值*15)
+                # 左侧大小
                 sorted_course_values = [course_contrib[c] for c in sorted_course_names]
                 course_node_sizes = [100 + v * 15 for v in sorted_course_values]
 
-                # === 右侧指标：按 H支撑度 (H*10) 计算大小 ===
-                # req_imp_special 已经是 H*10
-                # 顺序保持原样 (req_names)
+                # 右侧大小
                 req_values = [req_imp_special[r] for r in req_names]
-                req_node_sizes = [100 + v * 8 for v in req_values] # 系数调小点因为 H*10 值比较大
+                req_node_sizes = [100 + v * 8 for v in req_values]
 
-                # === 坐标设置 ===
+                # 坐标
                 pos = {}
                 y_course = np.linspace(0, 1, len(sorted_course_names))
                 for i, course in enumerate(sorted_course_names):
@@ -247,7 +246,7 @@ if uploaded_file is not None:
                 for i, req in enumerate(req_names):
                     pos[req] = np.array([1, y_req[i]])
                 
-                # === 绘图 ===
+                # 绘图
                 net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
                 fig2, ax2 = plt.subplots(figsize=(14, net_height))
                 
@@ -258,28 +257,25 @@ if uploaded_file is not None:
                 edges, colors, widths = [], [], []
                 for c in sorted_course_names:
                     for r in req_names:
-                        w = df_num.loc[c, r] # 连线颜色还是用 3/2/1
+                        w = df_num.loc[c, r] 
                         if w > 0:
                             G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.6)
                 
-                # 绘制节点
+                # 节点
                 nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=course_node_sizes, ax=ax2)
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 
-                # 绘制连线
+                # 连线
                 line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
-                # === 标签 (含数值) ===
-                # 左侧：显示综合贡献度
+                # 标签
                 left_labels_dict = {c: f"{c} ({int(course_contrib[c])})" for c in sorted_course_names}
                 label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
                 nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, 
                                       font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right',
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
                 
-                # 右侧：不显示数值，只显示名称 (保持原样)，或根据需求加数值。这里暂只显示名称保持整洁。
-                # 如果想加数值，改为: f"{n} ({int(req_imp_special[n])})"
                 label_pos_right = {n: (x+0.05, y) for n, (x, y) in pos.items() if n in req_names}
                 right_font = 8 if num_reqs > 30 else 10
                 nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, 
@@ -289,13 +285,11 @@ if uploaded_file is not None:
                 ax2.set_xlim(-1.6, 1.5)
                 ax2.set_ylim(-0.05, 1.05)
                 ax2.axis('off')
-                
-                # 标题更新
                 ax2.set_title("支撑关系网络拓扑图\n左侧依据：综合贡献 (H*3+M*2+L*1) | 右侧依据：重要度 (H*10)", fontsize=14)
                 
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
-            # 4. 课程贡献度
+            # --- 图表3：课程贡献度 (【核心修正】：使用 Patch 图例替代文字标题) ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 for log in audit_logs["courses"]:
@@ -303,6 +297,7 @@ if uploaded_file is not None:
                     elif '⚠️' in log: st.warning(log)
                     else: st.success(log)
                 st.markdown("---")
+                
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
                 sorted_contrib_asc = course_contrib.sort_values(ascending=True)
                 bar_colors = []
@@ -312,13 +307,25 @@ if uploaded_file is not None:
                     if clean_name in GEN_ED_COURSES: bar_colors.append('#D3D3D3'); text_colors.append('#808080')
                     elif '*' in clean_name: bar_colors.append('#FFD700'); text_colors.append('#B8860B')
                     else: bar_colors.append('#4682B4'); text_colors.append('black')
+                
                 bars = ax3.barh(sorted_contrib_asc.index, sorted_contrib_asc.values, color=bar_colors, edgecolor='none', alpha=0.9)
                 for label, color in zip(ax3.get_yticklabels(), text_colors):
                     label.set_color(color)
                     if color != 'black': label.set_fontweight('bold')
                 for i, v in enumerate(sorted_contrib_asc):
                     ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
-                ax3.set_title("课程贡献度排名\n(🟨核心课程  ⬜通识课程  🟦其他课程)", fontsize=14, pad=15)
+                
+                # 【修改处】标题不再包含 emoji
+                ax3.set_title("课程贡献度排名", fontsize=16, pad=20)
+                
+                # 【修改处】添加标准的 Matplotlib 图例
+                legend_elements = [
+                    mpatches.Patch(facecolor='#FFD700', edgecolor='none', label='核心课程'),
+                    mpatches.Patch(facecolor='#D3D3D3', edgecolor='none', label='通识课程'),
+                    mpatches.Patch(facecolor='#4682B4', edgecolor='none', label='其他课程')
+                ]
+                ax3.legend(handles=legend_elements, loc='lower right', bbox_to_anchor=(1, 1), ncol=3, frameon=False, fontsize=10)
+                
                 ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
                 st.pyplot(fig3); pdf.savefig(fig3, bbox_inches='tight')
 
