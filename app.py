@@ -27,7 +27,7 @@ else:
     NETWORK_FONT = 'Heiti TC' 
 
 # ================= 2. 核心配置 =================
-# 常规权重 (用于热力图、网络图连线粗细、课程贡献度)
+# 常规权重 (用于热力图、网络图、课程贡献度)
 WEIGHT_MAP = {
     'H': 3, 'h': 3, '3': 3, 'High': 3,
     'M': 2, 'm': 2, '2': 2, 'Medium': 2,
@@ -35,8 +35,7 @@ WEIGHT_MAP = {
     '': 0, ' ': 0, 'nan': 0
 }
 
-# 【新增】特殊权重 (仅用于毕业要求重要程度排名)
-# H=10, M=0, L=0
+# 特殊权重 (仅用于毕业要求重要度计算：只认H)
 WEIGHT_MAP_SPECIAL = {
     'H': 10, 'h': 10, '3': 10, 'High': 10,
     'M': 0, 'm': 0, '2': 0, 'Medium': 0,
@@ -68,14 +67,13 @@ def generate_analysis(uploaded_file):
         req_data = df_raw.iloc[:, 2:] 
         req_names = req_data.columns.tolist()
         
-        # --- 计算1：常规数值化 (用于大部分图表) ---
+        # --- 常规数值化 ---
         df_num = req_data.copy()
         for col in df_num.columns:
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
-        # --- 计算2：特殊数值化 (仅用于毕业要求重要度) ---
-        # 逻辑：H=10, M=0, L=0
+        # --- 特殊数值化 (H=10, M=0, L=0) ---
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -83,10 +81,7 @@ def generate_analysis(uploaded_file):
 
         df_display_labels = df_num.applymap(lambda x: REVERSE_LABEL_MAP.get(x, ''))
         
-        # 课程贡献度：使用常规权重 (3/2/1)
         course_contribution = df_num.sum(axis=1)
-        
-        # 【修改点】毕业要求重要度：使用特殊权重 (10/0/0)
         req_importance_special = df_num_special.sum(axis=0)
         
         return df_num, df_display_labels, course_names, req_names, course_contribution, req_importance_special
@@ -100,7 +95,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
     download_btn_placeholder = st.empty()
     st.markdown("---")
-    st.info("💡 **提示**：\n已开启双轨计算模式：\n- 课程贡献度：H=3/M=2/L=1\n- 毕业要求重要度：H=10/M=0/L=0")
+    st.info("💡 **审核原则**：\n1. 指标点需 ≥2门H支撑\n2. 指标点需 ≥3门总支撑\n(未达标将自动报警)")
 
 # ================= 5. 主界面 =================
 if uploaded_file is not None:
@@ -205,20 +200,47 @@ if uploaded_file is not None:
                 st.pyplot(fig3)
                 pdf.savefig(fig3, bbox_inches='tight')
 
-            # --- 图表4：指标重要度 (【核心修改】：使用新算法) ---
+            # --- 图表4：指标重要度 (含自动审核) ---
             with tab4:
                 st.subheader("毕业要求重要程度")
+                
+                # === 自动审核逻辑 (新功能) ===
+                weak_warnings = []
+                count_idx = 1
+                for req_name in df_num.columns:
+                    # 统计各等级数量
+                    count_h = (df_num[req_name] == 3).sum()
+                    count_m = (df_num[req_name] == 2).sum()
+                    count_l = (df_num[req_name] == 1).sum()
+                    count_total = count_h + count_m + count_l
+                    
+                    # 规则：H < 2 或 总数 < 3
+                    if count_h < 2 or count_total < 3:
+                        warning_text = (
+                            f"【薄弱指标点{count_idx}：{req_name}，"
+                            f"该指标点下面有{count_total}门课程支撑，"
+                            f"支撑情况分别是 {count_h}课程H、{count_m}课程M、{count_l}课程L】"
+                        )
+                        weak_warnings.append(warning_text)
+                        count_idx += 1
+                
+                # 显示报警
+                if weak_warnings:
+                    st.error(f"⚠️ 审核不通过：检测到 {len(weak_warnings)} 个薄弱指标点！")
+                    for w in weak_warnings:
+                        st.markdown(f"<span style='color:red; font-weight:bold'>{w}</span>", unsafe_allow_html=True)
+                    st.markdown("---")
+                else:
+                    st.success("✅ 审核通过：所有指标点均满足“至少2门H支撑且总支撑≥3门”的要求。")
+
+                # 绘图 (使用 H=10 权重)
                 fig4_height = max(6, num_reqs * 0.4) 
                 fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
-                
-                # 使用 req_imp_special (H=10/0/0) 进行绘图
                 sorted_imp = req_imp_special.sort_values(ascending=True)
-                
                 sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
                 for i, v in enumerate(sorted_imp):
                     ax4.text(v + 0.5, i, str(int(v)), va='center', fontweight='bold')
                 
-                # 更新标题说明
                 ax4.set_title("毕业要求重要程度排名\n(计算依据：仅统计强支撑 H=10，M和L不计入)", fontsize=14, pad=15)
                 ax4.set_xlabel("重要程度分值 (H=10)")
                 
