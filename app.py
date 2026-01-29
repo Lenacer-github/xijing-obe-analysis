@@ -9,6 +9,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from io import BytesIO
 import matplotlib.font_manager as fm
 import platform
+import math
 
 # ================= 页面配置 =================
 st.set_page_config(page_title="课程目标达成度分析系统", layout="wide")
@@ -27,7 +28,7 @@ else:
     NETWORK_FONT = 'Heiti TC' 
 
 # ================= 2. 核心配置 =================
-# 常规权重
+# 常规权重 (用于热力图、网络图、课程贡献度)
 WEIGHT_MAP = {
     'H': 3, 'h': 3, '3': 3, 'High': 3,
     'M': 2, 'm': 2, '2': 2, 'Medium': 2,
@@ -35,7 +36,7 @@ WEIGHT_MAP = {
     '': 0, ' ': 0, 'nan': 0
 }
 
-# 特殊权重 (仅用于毕业要求重要度计算)
+# 特殊权重 (仅用于毕业要求重要度计算：只认H)
 WEIGHT_MAP_SPECIAL = {
     'H': 10, 'h': 10, '3': 10, 'High': 10,
     'M': 0, 'm': 0, '2': 0, 'Medium': 0,
@@ -73,7 +74,7 @@ def generate_analysis(uploaded_file):
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
-        # --- 特殊数值化 (H=10) ---
+        # --- 特殊数值化 (H=10, M=0, L=0) ---
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -95,7 +96,7 @@ with st.sidebar:
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
     download_btn_placeholder = st.empty()
     st.markdown("---")
-    st.info("💡 **审核原则**：\n1. 所有指标点需 ≥2门H支撑\n2. 所有指标点需 ≥3门总支撑\n(不满足将自动报警)")
+    st.info("💡 **审核原则**：\n1. 所有指标点需 ≥2门H支撑\n2. 核心课程(*)需位于贡献度前1/3\n3. 核心课程不能位于倒数10名")
 
 # ================= 5. 主界面 =================
 if uploaded_file is not None:
@@ -171,100 +172,47 @@ if uploaded_file is not None:
                 st.pyplot(fig2)
                 pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献 ---
+            # --- 图表3：课程贡献 (含自动审查) ---
             with tab3:
                 st.subheader("课程贡献度排名")
-                fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
-                sorted_contrib = course_contrib.sort_values(ascending=True)
                 
-                bar_colors = []
-                text_colors = []
-                for name in sorted_contrib.index:
-                    clean_name = str(name).strip()
-                    if clean_name in GEN_ED_COURSES:
-                        bar_colors.append('#D3D3D3'); text_colors.append('#808080')
-                    elif '*' in clean_name:
-                        bar_colors.append('#FFD700'); text_colors.append('#B8860B')
-                    else:
-                        bar_colors.append('#4682B4'); text_colors.append('black')
-
-                bars = ax3.barh(sorted_contrib.index, sorted_contrib.values, color=bar_colors, edgecolor='none', alpha=0.9)
-                for label, color in zip(ax3.get_yticklabels(), text_colors):
-                    label.set_color(color)
-                    if color != 'black': label.set_fontweight('bold')
-                for i, v in enumerate(sorted_contrib):
-                    ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
+                # === 课程贡献度审查逻辑 ===
+                # 1. 准备数据：按贡献度降序排列 (High to Low)
+                df_sorted_desc = course_contrib.sort_values(ascending=False)
+                total_courses = len(df_sorted_desc)
                 
-                ax3.set_title("课程贡献度排名\n(🟨核心课程  ⬜通识课程  🟦其他课程)", fontsize=14, pad=15)
-                ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
-                st.pyplot(fig3)
-                pdf.savefig(fig3, bbox_inches='tight')
-
-            # --- 图表4：指标重要度 (【核心修改】：增加薄弱点检测) ---
-            with tab4:
-                st.subheader("毕业要求重要程度")
+                # 识别核心课程
+                core_courses = [c for c in df_sorted_desc.index if '*' in str(c)]
                 
-                # === 自动审核逻辑 ===
-                weak_warnings = []
-                count_idx = 1
-                for req_name in df_num.columns:
-                    # 统计各等级支撑数量
-                    count_h = (df_num[req_name] == 3).sum()
-                    count_m = (df_num[req_name] == 2).sum()
-                    count_l = (df_num[req_name] == 1).sum()
-                    count_total = count_h + count_m + count_l
-                    
-                    # 审核规则：H < 2 或 总数 < 3
-                    if count_h < 2 or count_total < 3:
-                        warning_text = (
-                            f"【薄弱指标点{count_idx}：{req_name}，"
-                            f"该指标点下面有{count_total}门课程支撑，"
-                            f"支撑情况分别是 {count_h}课程H、{count_m}课程M、{count_l}课程L】"
-                        )
-                        weak_warnings.append(warning_text)
-                        count_idx += 1
-                
-                # 如果有薄弱点，在图表上方显示红色警报
-                if weak_warnings:
-                    st.error(f"⚠️ 审核不通过：检测到 {len(weak_warnings)} 个薄弱指标点！")
-                    for w in weak_warnings:
-                        st.markdown(f"<span style='color:red'>{w}</span>", unsafe_allow_html=True)
-                    st.markdown("---")
+                # 规则1：零支撑检查
+                zero_contrib_courses = df_sorted_desc[df_sorted_desc == 0].index.tolist()
+                if zero_contrib_courses:
+                    for zc in zero_contrib_courses:
+                        st.error(f"❌ {zc} 课程支撑度为0，请核查！")
                 else:
-                    st.success("✅ 审核通过：所有指标点均满足“至少2门H支撑且总支撑≥3门”的要求。")
-
-                # 绘图 (继续使用特殊权重 H=10)
-                fig4_height = max(6, num_reqs * 0.4) 
-                fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
-                sorted_imp = req_imp_special.sort_values(ascending=True)
-                sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
-                for i, v in enumerate(sorted_imp):
-                    ax4.text(v + 0.5, i, str(int(v)), va='center', fontweight='bold')
+                    st.success("✅ 课程质量检查：所有课程均有支撑（无0支撑课程）。")
                 
-                ax4.set_title("毕业要求重要程度排名\n(计算依据：仅统计强支撑 H=10，M和L不计入)", fontsize=14, pad=15)
-                ax4.set_xlabel("重要程度分值 (H=10)")
-                
-                st.pyplot(fig4)
-                pdf.savefig(fig4, bbox_inches='tight')
+                # 规则3：核心课程存在性检查
+                if not core_courses:
+                    st.error("⛔ 未检测到专业核心课程，请检查专业核心课程的标识「*」是否准确标注。")
+                else:
+                    # 规则2：核心课程必须在前1/3
+                    top_third_threshold = math.ceil(total_courses / 3)
+                    top_third_courses = df_sorted_desc.index[:top_third_threshold].tolist()
+                    
+                    for core in core_courses:
+                        if core not in top_third_courses:
+                            st.warning(f"⚠️ 【《{core}》专业核心课程排名没有位于课程贡献度排名的前三分之一，需要注意】")
+                    
+                    # 规则4：边缘课程检查 (最后10门)
+                    if total_courses > 10:
+                        bottom_10_courses = df_sorted_desc.index[-10:].tolist()
+                        for core in core_courses:
+                            if core in bottom_10_courses:
+                                st.error(f"🚫 【《{core}》专业核心课程位于边缘课程(倒数10名)，需要注意】")
 
-        download_btn_placeholder.download_button(
-            label="📥 点击下载最终版报告 (PDF)",
-            data=pdf_buffer.getvalue(),
-            file_name="西京学院商学院_课程体系分析报告.pdf",
-            mime="application/pdf",
-            type="primary"
-        )
-        st.sidebar.success(f"✅ 分析完成！共处理 {num_reqs} 个指标点。")
+                st.markdown("---")
 
-else:
-    st.info("👈 请在左侧上传文件。")
-
-st.markdown("---")
-st.markdown(
-    '''
-    <div style="text-align: center; color: #888888; font-size: 14px; padding: 10px;">
-        版权所有 © 西京学院商学院
-    </div>
-    ''',
-    unsafe_allow_html=True
-)
+                # === 绘图 ===
+                fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
+                # 注意：绘图用 ascending=True 是因为 barh 从下往上画，
