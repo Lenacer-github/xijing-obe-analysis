@@ -212,36 +212,34 @@ if uploaded_file is not None:
                 ax1.set_ylabel('课程名称', fontsize=12)
                 ax1.xaxis.tick_top(); ax1.xaxis.set_label_position('top') 
                 ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
-                st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight')
+                st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight') 
 
-            # --- 图表2：网络图 (【核心升级】：双柱排序布局) ---
+            # --- 图表2：网络图 (【核心升级】：节点动态大小 + 数值标注) ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
                 
-                # A. 计算用于排序的 H 贡献度 (H=10, M=0, L=0)
-                # 使用 df_num 中 H=3 来判断
+                # A. 排序与数值计算
                 h_counts = (df_num == 3).sum(axis=1)
                 h_contrib_for_sort = h_counts * 10
-                # 按贡献度从小到大排序 (Left Side)
                 sorted_course_names = h_contrib_for_sort.sort_values(ascending=True).index.tolist()
                 
-                # B. 构建自定义坐标系 (pos)
+                # B. 计算左侧节点大小 (Based on Value)
+                # 基础大小 100，每10分增加 100 大小，防止过大或过小
+                # 如果值为0，大小为100；如果值为90，大小为1000
+                sorted_values = [h_contrib_for_sort[c] for c in sorted_course_names]
+                course_node_sizes = [100 + v * 10 for v in sorted_values]
+
+                # C. 坐标设置
                 pos = {}
-                
-                # 左侧：课程 (x=0, y=0~1 均匀分布)
-                # 从小到大排，意味着贡献小的在底部(y=0)，大的在顶部(y=1)
                 y_course = np.linspace(0, 1, len(sorted_course_names))
                 for i, course in enumerate(sorted_course_names):
-                    pos[course] = np.array([-1, y_course[i]]) # x=-1 放在左边
+                    pos[course] = np.array([-1, y_course[i]])
                 
-                # 右侧：指标 (x=1, y=0~1 均匀分布)
-                # 保持原顺序
                 y_req = np.linspace(0, 1, len(req_names))
                 for i, req in enumerate(req_names):
-                    pos[req] = np.array([1, y_req[i]]) # x=1 放在右边
+                    pos[req] = np.array([1, y_req[i]])
                 
-                # C. 绘图
-                # 动态调整高度，防止密集
+                # D. 绘图
                 net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
                 fig2, ax2 = plt.subplots(figsize=(14, net_height))
                 
@@ -250,7 +248,6 @@ if uploaded_file is not None:
                 G.add_nodes_from(req_names, bipartite=1)
                 
                 edges, colors, widths = [], [], []
-                # 重新遍历连线，注意要基于排好序的课程来画，或者直接遍历全集
                 for c in sorted_course_names:
                     for r in req_names:
                         w = df_num.loc[c, r]
@@ -258,34 +255,37 @@ if uploaded_file is not None:
                             G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.6)
                 
                 # 绘制节点
-                # 课程节点 (左)
-                nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=200, ax=ax2)
-                # 指标节点 (右) - 大小随度数变化
+                # 左侧：动态大小
+                nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=course_node_sizes, ax=ax2)
+                # 右侧：固定规则
                 req_node_sizes = [300 + G.degree(r) * 80 for r in req_names]
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 
-                # 绘制连线
+                # 连线
                 line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
-                # 绘制标签 (Labels)
-                # 左侧标签 (居左对齐)
+                # 绘制标签 (含数值标注)
+                # 构建标签字典：课程名 (分值)
+                left_labels_dict = {c: f"{c} ({int(h_contrib_for_sort[c])})" for c in sorted_course_names}
+                
                 label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
-                nx.draw_networkx_labels(G, label_pos_left, labels={n:n for n in sorted_course_names}, 
+                nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, 
                                       font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right',
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
                 
-                # 右侧标签 (居右对齐)
                 label_pos_right = {n: (x+0.05, y) for n, (x, y) in pos.items() if n in req_names}
                 right_font = 8 if num_reqs > 30 else 10
                 nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, 
                                       font_family=NETWORK_FONT, font_size=right_font, ax=ax2, horizontalalignment='left',
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
                 
-                # 调整画布范围，留出文字空间
-                ax2.set_xlim(-1.5, 1.5)
+                ax2.set_xlim(-1.6, 1.5) # 稍微加宽左侧边界，容纳数值文字
                 ax2.set_ylim(-0.05, 1.05)
                 ax2.axis('off')
+                
+                # 添加标题和计算依据
+                ax2.set_title("支撑关系网络拓扑图\n(左侧课程按H贡献度排序，节点大小及数值代表贡献值; 计算依据: H=10, M=0, L=0)", fontsize=14)
                 
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
