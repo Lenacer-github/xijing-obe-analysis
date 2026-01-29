@@ -45,10 +45,9 @@ def generate_analysis(uploaded_file):
         else:
             df_raw = pd.read_excel(uploaded_file)
         
-        # 【升级点1】不再限制只取前11列，而是取从第2列开始的所有列
-        # 假设：第0列=序号，第1列=课程名称，第2列及以后=所有毕业要求
+        # 自动读取所有毕业要求列 (从第2列开始)
         course_names = df_raw.iloc[:, 1].values
-        req_data = df_raw.iloc[:, 2:]  # 自动读取剩下所有列
+        req_data = df_raw.iloc[:, 2:] 
         req_names = req_data.columns.tolist()
         
         # 统一数值化
@@ -83,16 +82,14 @@ if uploaded_file is not None:
     if results:
         df_num, df_display_labels, course_names, req_names, course_contrib, req_imp = results
         
-        # 【升级点2】计算指标点数量，决定字体大小
-        num_reqs = len(req_names)
-        
         # 字体大小自适应算法
+        num_reqs = len(req_names)
         if num_reqs <= 12:
             dynamic_font_size = 11
         elif num_reqs <= 20:
             dynamic_font_size = 9
         else:
-            dynamic_font_size = 7 # 指标点非常多时，字号调小
+            dynamic_font_size = 7
             
         pdf_buffer = BytesIO()
         
@@ -109,13 +106,11 @@ if uploaded_file is not None:
                 
                 sns.heatmap(df_num, annot=df_display_labels.values, fmt='', cmap=cmap, cbar=False, 
                             linewidths=0.5, linecolor='gray', ax=ax1, vmin=0, vmax=3,
-                            # 使用动态字体大小
                             annot_kws={"size": dynamic_font_size, "color": "black", "weight": "bold"}) 
                 
                 ax1.set_ylabel('课程名称', fontsize=12)
                 ax1.xaxis.tick_top()
                 ax1.xaxis.set_label_position('top') 
-                # X轴标签字体也跟随调整
                 ax1.set_xticklabels(req_names, rotation=45, ha='left', fontsize=dynamic_font_size)
                 
                 st.pyplot(fig1) 
@@ -124,7 +119,6 @@ if uploaded_file is not None:
             # --- 图表2：网络图 ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                # 如果指标点很多，稍微拉大图表宽度
                 fig2, ax2 = plt.subplots(figsize=(16 if num_reqs > 15 else 14, 12))
                 G = nx.Graph()
                 G.add_nodes_from(course_names, bipartite=0)
@@ -144,7 +138,6 @@ if uploaded_file is not None:
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=0.6, ax=ax2)
                 
-                # 网络图标签字体也进行微调
                 label_size = 10 if num_reqs <= 15 else 8
                 nx.draw_networkx_labels(G, pos, font_family=NETWORK_FONT, font_size=label_size, ax=ax2, 
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
@@ -168,7 +161,6 @@ if uploaded_file is not None:
             # --- 图表4：指标重要度 ---
             with tab4:
                 st.subheader("毕业要求重要程度")
-                # 【升级点3】图表高度自适应：如果指标点很多，自动拉长图表，防止挤在一起
                 fig4_height = max(6, num_reqs * 0.5) 
                 fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
                 
@@ -191,3 +183,14 @@ if uploaded_file is not None:
         )
 else:
     st.info("👈 请上传文件 (Excel 或 CSV 均可)。")
+
+# ================= 底部版权信息 (新增) =================
+st.markdown("---") # 分割线
+st.markdown(
+    '''
+    <div style="text-align: center; color: #888888; font-size: 14px; padding: 10px;">
+        版权所有 © 西京学院商学院
+    </div>
+    ''',
+    unsafe_allow_html=True
+)
