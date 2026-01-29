@@ -259,7 +259,7 @@ if uploaded_file is not None:
                 ax2.set_title("支撑关系网络拓扑图\n左侧依据：综合贡献 (H*3+M*2+L*1) | 右侧依据：重要度 (H*10)", fontsize=14)
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献度 (【核心修复】：绝对坐标定位标题与图例) ---
+            # --- 图表3：课程贡献度 (【核心修复】：Pad + Absolute Legend) ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 for log in audit_logs["courses"]:
@@ -283,16 +283,17 @@ if uploaded_file is not None:
                 for i, v in enumerate(sorted_contrib_asc):
                     ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
                 
-                # 【修改处】使用 y=1.20 强制推高标题，不依赖 pad
-                ax3.set_title("课程贡献度排名", fontsize=16, y=1.20)
+                # 【修改处】图例锚定在轴线顶部 (1.00)，标题向上 pad 55 点
+                # 这样无论图多高，图例都贴着顶，标题都贴着图例，距离恒定。
+                ax3.set_title("课程贡献度排名", fontsize=16, pad=55)
                 
-                # 【修改处】图例位置保持在 y=1.02 (轴上方)
                 legend_elements = [
                     mpatches.Patch(facecolor='#FFD700', edgecolor='none', label='核心课程'),
                     mpatches.Patch(facecolor='#D3D3D3', edgecolor='none', label='通识课程'),
                     mpatches.Patch(facecolor='#4682B4', edgecolor='none', label='其他课程')
                 ]
-                ax3.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=False, fontsize=10)
+                # loc='lower center' + bbox=(0.5, 1.00) 意味着图例的底边正好对齐轴的顶边
+                ax3.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 1.00), ncol=3, frameon=False, fontsize=10)
                 
                 ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
                 st.pyplot(fig3); pdf.savefig(fig3, bbox_inches='tight')
