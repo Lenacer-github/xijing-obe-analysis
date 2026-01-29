@@ -43,12 +43,12 @@ def generate_analysis(uploaded_file):
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file)
         else:
-            # 读取 Excel (兼容 .xlsx 和 .xls)
             df_raw = pd.read_excel(uploaded_file)
         
-        # 提取数据
+        # 【升级点1】不再限制只取前11列，而是取从第2列开始的所有列
+        # 假设：第0列=序号，第1列=课程名称，第2列及以后=所有毕业要求
         course_names = df_raw.iloc[:, 1].values
-        req_data = df_raw.iloc[:, 2:11]
+        req_data = df_raw.iloc[:, 2:]  # 自动读取剩下所有列
         req_names = req_data.columns.tolist()
         
         # 统一数值化
@@ -67,13 +67,14 @@ def generate_analysis(uploaded_file):
         return df_num, df_display_labels, course_names, req_names, course_contribution, req_importance
         
     except Exception as e:
-        st.error(f"文件读取失败。请确保文件未加密且格式正确。详细错误: {e}")
+        st.error(f"文件处理出错。请检查表头格式是否正确。详细错误: {e}")
         return None
 
 # ================= 侧边栏 =================
 with st.sidebar:
     st.header("📂 数据中心")
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
+    st.info("💡 提示：系统会自动识别所有毕业要求指标点列，支持9项、12项或更多。")
 
 # ================= 主界面 =================
 if uploaded_file is not None:
@@ -82,27 +83,40 @@ if uploaded_file is not None:
     if results:
         df_num, df_display_labels, course_names, req_names, course_contrib, req_imp = results
         
+        # 【升级点2】计算指标点数量，决定字体大小
+        num_reqs = len(req_names)
+        
+        # 字体大小自适应算法
+        if num_reqs <= 12:
+            dynamic_font_size = 11
+        elif num_reqs <= 20:
+            dynamic_font_size = 9
+        else:
+            dynamic_font_size = 7 # 指标点非常多时，字号调小
+            
         pdf_buffer = BytesIO()
         
-        # ！！！ 刚才报错就是这里少了括号，现在已修复 ！！！
         with PdfPages(pdf_buffer) as pdf:
             
             tab1, tab2, tab3, tab4 = st.tabs(["矩阵热力图", "支撑网络图", "课程贡献排名", "指标重要度"])
             
             # --- 图表1：矩阵热力图 ---
             with tab1:
-                st.subheader("课程 - 毕业要求支撑矩阵")
+                st.subheader(f"课程 - 毕业要求支撑矩阵 (共识别到 {num_reqs} 个指标点)")
                 fig_height = max(10, len(course_names) * 0.6)
                 fig1, ax1 = plt.subplots(figsize=(12, fig_height))
                 cmap = ListedColormap(['#f5f5f5', '#FFD700', '#FF8C00', '#FF4500'])
+                
                 sns.heatmap(df_num, annot=df_display_labels.values, fmt='', cmap=cmap, cbar=False, 
                             linewidths=0.5, linecolor='gray', ax=ax1, vmin=0, vmax=3,
-                            annot_kws={"size": 11, "color": "black", "weight": "bold"}) 
+                            # 使用动态字体大小
+                            annot_kws={"size": dynamic_font_size, "color": "black", "weight": "bold"}) 
                 
                 ax1.set_ylabel('课程名称', fontsize=12)
                 ax1.xaxis.tick_top()
                 ax1.xaxis.set_label_position('top') 
-                ax1.set_xticklabels(req_names, rotation=45, ha='left')
+                # X轴标签字体也跟随调整
+                ax1.set_xticklabels(req_names, rotation=45, ha='left', fontsize=dynamic_font_size)
                 
                 st.pyplot(fig1) 
                 pdf.savefig(fig1, bbox_inches='tight') 
@@ -110,7 +124,8 @@ if uploaded_file is not None:
             # --- 图表2：网络图 ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                fig2, ax2 = plt.subplots(figsize=(14, 12))
+                # 如果指标点很多，稍微拉大图表宽度
+                fig2, ax2 = plt.subplots(figsize=(16 if num_reqs > 15 else 14, 12))
                 G = nx.Graph()
                 G.add_nodes_from(course_names, bipartite=0)
                 G.add_nodes_from(req_names, bipartite=1)
@@ -128,7 +143,10 @@ if uploaded_file is not None:
                 nx.draw_networkx_nodes(G, pos, nodelist=course_names, node_color='#87CEEB', node_size=300, ax=ax2)
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=0.6, ax=ax2)
-                nx.draw_networkx_labels(G, pos, font_family=NETWORK_FONT, font_size=10, ax=ax2, 
+                
+                # 网络图标签字体也进行微调
+                label_size = 10 if num_reqs <= 15 else 8
+                nx.draw_networkx_labels(G, pos, font_family=NETWORK_FONT, font_size=label_size, ax=ax2, 
                                       bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
                 ax2.axis('off')
                 st.pyplot(fig2)
@@ -150,7 +168,10 @@ if uploaded_file is not None:
             # --- 图表4：指标重要度 ---
             with tab4:
                 st.subheader("毕业要求重要程度")
-                fig4, ax4 = plt.subplots(figsize=(10, 6))
+                # 【升级点3】图表高度自适应：如果指标点很多，自动拉长图表，防止挤在一起
+                fig4_height = max(6, num_reqs * 0.5) 
+                fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
+                
                 sorted_imp = req_imp.sort_values(ascending=True)
                 sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
                 for i, v in enumerate(sorted_imp):
@@ -161,11 +182,11 @@ if uploaded_file is not None:
                 pdf.savefig(fig4, bbox_inches='tight')
 
         # ================= 下载 =================
-        st.success("✅ 报表生成完毕 | 已支持 Excel 格式")
+        st.success(f"✅ 分析完成！已自动适配 {num_reqs} 个毕业要求指标点。")
         st.download_button(
             label="⬇️ 下载最终版 PDF 报告",
             data=pdf_buffer.getvalue(),
-            file_name="西京学院商学院_课程体系分析报告_v6.pdf",
+            file_name="西京学院商学院_课程体系分析报告_自适应版.pdf",
             mime="application/pdf"
         )
 else:
