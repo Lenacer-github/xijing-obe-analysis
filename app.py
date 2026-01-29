@@ -8,7 +8,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.backends.backend_pdf import PdfPages
 from io import BytesIO
 import matplotlib.font_manager as fm
-import matplotlib.patches as mpatches  # 【新增】用于绘制标准图例
+import matplotlib.patches as mpatches 
 import platform
 import math
 import textwrap
@@ -31,7 +31,6 @@ else:
 
 # 权重配置
 WEIGHT_MAP = {'H': 3, 'h': 3, '3': 3, 'High': 3, 'M': 2, 'm': 2, '2': 2, 'Medium': 2, 'L': 1, 'l': 1, '1': 1, 'Low': 1, '': 0, ' ': 0, 'nan': 0}
-# 特殊权重 (仅用于毕业要求重要度计算)
 WEIGHT_MAP_SPECIAL = {'H': 10, 'h': 10, '3': 10, 'High': 10, 'M': 0, 'm': 0, '2': 0, 'Medium': 0, 'L': 0, 'l': 0, '1': 0, 'Low': 0, '': 0, ' ': 0, 'nan': 0}
 
 COLOR_MAP = {3: '#FF4500', 2: '#FF8C00', 1: '#FFD700', 0: '#FFFFFF'}
@@ -151,13 +150,11 @@ def generate_analysis(uploaded_file):
         req_data = df_raw.iloc[:, 2:] 
         req_names = req_data.columns.tolist()
         
-        # 1. 常规数值化 (用于 课程贡献度 & 左侧节点计算)
         df_num = req_data.copy()
         for col in df_num.columns:
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
-        # 2. 特殊数值化 (用于 指标重要度 & 右侧节点计算)
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -220,19 +217,13 @@ if uploaded_file is not None:
                 ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
                 st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight') 
 
-            # 3. 网络图 (左右双逻辑计算节点大小)
+            # 3. 网络图
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                
-                # A. 排序与数值计算
-                # 左侧课程：按综合贡献度 (3H+2M+1L) 排序
+                # 排序
                 sorted_course_names = course_contrib.sort_values(ascending=True).index.tolist()
-                
-                # 左侧大小
                 sorted_course_values = [course_contrib[c] for c in sorted_course_names]
                 course_node_sizes = [100 + v * 15 for v in sorted_course_values]
-
-                # 右侧大小
                 req_values = [req_imp_special[r] for r in req_names]
                 req_node_sizes = [100 + v * 8 for v in req_values]
 
@@ -241,7 +232,6 @@ if uploaded_file is not None:
                 y_course = np.linspace(0, 1, len(sorted_course_names))
                 for i, course in enumerate(sorted_course_names):
                     pos[course] = np.array([-1, y_course[i]])
-                
                 y_req = np.linspace(0, 1, len(req_names))
                 for i, req in enumerate(req_names):
                     pos[req] = np.array([1, y_req[i]])
@@ -249,11 +239,8 @@ if uploaded_file is not None:
                 # 绘图
                 net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
                 fig2, ax2 = plt.subplots(figsize=(14, net_height))
-                
                 G = nx.Graph()
-                G.add_nodes_from(sorted_course_names, bipartite=0)
-                G.add_nodes_from(req_names, bipartite=1)
-                
+                G.add_nodes_from(sorted_course_names, bipartite=0); G.add_nodes_from(req_names, bipartite=1)
                 edges, colors, widths = [], [], []
                 for c in sorted_course_names:
                     for r in req_names:
@@ -261,35 +248,23 @@ if uploaded_file is not None:
                         if w > 0:
                             G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.6)
                 
-                # 节点
                 nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=course_node_sizes, ax=ax2)
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
-                
-                # 连线
                 line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
                 # 标签
                 left_labels_dict = {c: f"{c} ({int(course_contrib[c])})" for c in sorted_course_names}
                 label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
-                nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, 
-                                      font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right',
-                                      bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
-                
+                nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right', bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
                 label_pos_right = {n: (x+0.05, y) for n, (x, y) in pos.items() if n in req_names}
                 right_font = 8 if num_reqs > 30 else 10
-                nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, 
-                                      font_family=NETWORK_FONT, font_size=right_font, ax=ax2, horizontalalignment='left',
-                                      bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
-                
-                ax2.set_xlim(-1.6, 1.5)
-                ax2.set_ylim(-0.05, 1.05)
-                ax2.axis('off')
+                nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, font_family=NETWORK_FONT, font_size=right_font, ax=ax2, horizontalalignment='left', bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
+                ax2.set_xlim(-1.6, 1.5); ax2.set_ylim(-0.05, 1.05); ax2.axis('off')
                 ax2.set_title("支撑关系网络拓扑图\n左侧依据：综合贡献 (H*3+M*2+L*1) | 右侧依据：重要度 (H*10)", fontsize=14)
-                
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献度 (【核心修正】：使用 Patch 图例替代文字标题) ---
+            # --- 图表3：课程贡献度 (【核心修复】：图例布局优化) ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 for log in audit_logs["courses"]:
@@ -315,16 +290,16 @@ if uploaded_file is not None:
                 for i, v in enumerate(sorted_contrib_asc):
                     ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
                 
-                # 【修改处】标题不再包含 emoji
-                ax3.set_title("课程贡献度排名", fontsize=16, pad=20)
+                # 【修改处】大大增加标题间距 (pad=50)，为图例腾出空间
+                ax3.set_title("课程贡献度排名", fontsize=16, pad=50)
                 
-                # 【修改处】添加标准的 Matplotlib 图例
+                # 【修改处】图例居中置顶 (lower center 锚定在 1.02 高度)
                 legend_elements = [
                     mpatches.Patch(facecolor='#FFD700', edgecolor='none', label='核心课程'),
                     mpatches.Patch(facecolor='#D3D3D3', edgecolor='none', label='通识课程'),
                     mpatches.Patch(facecolor='#4682B4', edgecolor='none', label='其他课程')
                 ]
-                ax3.legend(handles=legend_elements, loc='lower right', bbox_to_anchor=(1, 1), ncol=3, frameon=False, fontsize=10)
+                ax3.legend(handles=legend_elements, loc='lower center', bbox_to_anchor=(0.5, 1.02), ncol=3, frameon=False, fontsize=10)
                 
                 ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
                 st.pyplot(fig3); pdf.savefig(fig3, bbox_inches='tight')
