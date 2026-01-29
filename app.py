@@ -39,7 +39,7 @@ REVERSE_LABEL_MAP = {3: 'H', 2: 'M', 1: 'L', 0: ''}
 # ================= 分析逻辑 =================
 def generate_analysis(uploaded_file):
     try:
-        # 【升级点1】智能识别文件格式
+        # 智能识别文件格式
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file)
         else:
@@ -73,7 +73,6 @@ def generate_analysis(uploaded_file):
 # ================= 侧边栏 =================
 with st.sidebar:
     st.header("📂 数据中心")
-    # 【升级点2】允许上传 csv, xlsx, xls 三种格式
     uploaded_file = st.file_uploader("上传课程矩阵文件 (支持Excel/CSV)", type=['csv', 'xlsx', 'xls'])
 
 # ================= 主界面 =================
@@ -85,4 +84,89 @@ if uploaded_file is not None:
         
         pdf_buffer = BytesIO()
         
-        with PdfPages(pdf_buffer
+        # ！！！ 刚才报错就是这里少了括号，现在已修复 ！！！
+        with PdfPages(pdf_buffer) as pdf:
+            
+            tab1, tab2, tab3, tab4 = st.tabs(["矩阵热力图", "支撑网络图", "课程贡献排名", "指标重要度"])
+            
+            # --- 图表1：矩阵热力图 ---
+            with tab1:
+                st.subheader("课程 - 毕业要求支撑矩阵")
+                fig_height = max(10, len(course_names) * 0.6)
+                fig1, ax1 = plt.subplots(figsize=(12, fig_height))
+                cmap = ListedColormap(['#f5f5f5', '#FFD700', '#FF8C00', '#FF4500'])
+                sns.heatmap(df_num, annot=df_display_labels.values, fmt='', cmap=cmap, cbar=False, 
+                            linewidths=0.5, linecolor='gray', ax=ax1, vmin=0, vmax=3,
+                            annot_kws={"size": 11, "color": "black", "weight": "bold"}) 
+                
+                ax1.set_ylabel('课程名称', fontsize=12)
+                ax1.xaxis.tick_top()
+                ax1.xaxis.set_label_position('top') 
+                ax1.set_xticklabels(req_names, rotation=45, ha='left')
+                
+                st.pyplot(fig1) 
+                pdf.savefig(fig1, bbox_inches='tight') 
+
+            # --- 图表2：网络图 ---
+            with tab2:
+                st.subheader("支撑关系网络拓扑")
+                fig2, ax2 = plt.subplots(figsize=(14, 12))
+                G = nx.Graph()
+                G.add_nodes_from(course_names, bipartite=0)
+                G.add_nodes_from(req_names, bipartite=1)
+                
+                edges, colors, widths = [], [], []
+                for c in course_names:
+                    for r in req_names:
+                        w = df_num.loc[c, r]
+                        if w > 0:
+                            G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.8)
+                
+                pos = nx.bipartite_layout(G, course_names)
+                req_node_sizes = [300 + G.degree(r) * 100 for r in req_names]
+                
+                nx.draw_networkx_nodes(G, pos, nodelist=course_names, node_color='#87CEEB', node_size=300, ax=ax2)
+                nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
+                nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=0.6, ax=ax2)
+                nx.draw_networkx_labels(G, pos, font_family=NETWORK_FONT, font_size=10, ax=ax2, 
+                                      bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
+                ax2.axis('off')
+                st.pyplot(fig2)
+                pdf.savefig(fig2, bbox_inches='tight')
+
+            # --- 图表3：课程贡献 ---
+            with tab3:
+                st.subheader("课程贡献度排名")
+                fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
+                sorted_contrib = course_contrib.sort_values(ascending=True)
+                sorted_contrib.plot(kind='barh', color='#4682B4', ax=ax3, edgecolor='black', alpha=0.8)
+                for i, v in enumerate(sorted_contrib):
+                    ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold')
+                ax3.set_title("课程贡献度排名\n(计算依据：H=3, M=2, L=1 累加)", fontsize=14, pad=15)
+                ax3.set_xlabel("贡献度分值")
+                st.pyplot(fig3)
+                pdf.savefig(fig3, bbox_inches='tight')
+
+            # --- 图表4：指标重要度 ---
+            with tab4:
+                st.subheader("毕业要求重要程度")
+                fig4, ax4 = plt.subplots(figsize=(10, 6))
+                sorted_imp = req_imp.sort_values(ascending=True)
+                sorted_imp.plot(kind='barh', color='#2E8B57', ax=ax4, edgecolor='black', alpha=0.8)
+                for i, v in enumerate(sorted_imp):
+                    ax4.text(v + 0.5, i, str(int(v)), va='center', fontweight='bold')
+                ax4.set_title("毕业要求重要程度排名\n(计算依据：各指标点下 H=3, M=2, L=1 累加)", fontsize=14, pad=15)
+                ax4.set_xlabel("重要程度分值")
+                st.pyplot(fig4)
+                pdf.savefig(fig4, bbox_inches='tight')
+
+        # ================= 下载 =================
+        st.success("✅ 报表生成完毕 | 已支持 Excel 格式")
+        st.download_button(
+            label="⬇️ 下载最终版 PDF 报告",
+            data=pdf_buffer.getvalue(),
+            file_name="西京学院商学院_课程体系分析报告_v6.pdf",
+            mime="application/pdf"
+        )
+else:
+    st.info("👈 请上传文件 (Excel 或 CSV 均可)。")
