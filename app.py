@@ -12,7 +12,7 @@ import platform
 import math
 import textwrap
 
-# ================= 1. 页面标题配置 (已修改) =================
+# ================= 1. 页面标题配置 =================
 st.set_page_config(page_title="课程目标达成度分析系统", layout="wide")
 st.title("🎓 基于OBE理念的专业课程体系与毕业要求关联度矩阵分析系统")
 st.markdown("### 西京学院 | 人才培养方案修订辅助管理工具")
@@ -43,17 +43,11 @@ GEN_ED_COURSES = [
     '艺术修养与审美体验', '科技进步与生态文明', '创新思维与创业教育'
 ]
 
-# ================= 3. 核心审核逻辑 (抽离为独立函数) =================
+# ================= 3. 核心审核逻辑 =================
 def run_full_audit(df_num, course_contrib):
-    """
-    执行所有审核规则，返回日志列表，用于网页显示和PDF打印
-    """
-    audit_logs = {
-        "indicators": [],  # 指标点审核日志
-        "courses": []      # 课程审核日志
-    }
+    audit_logs = {"indicators": [], "courses": []}
     
-    # --- A. 指标点审核 ---
+    # A. 指标点审核
     count_idx = 1
     has_weak_reqs = False
     for req_name in df_num.columns:
@@ -71,7 +65,7 @@ def run_full_audit(df_num, course_contrib):
     if not has_weak_reqs:
         audit_logs["indicators"].append("✅ 所有毕业要求指标点均达标 (≥2门H支撑 且 总支撑≥3门)")
 
-    # --- B. 课程审核 ---
+    # B. 课程审核
     df_sorted = course_contrib.sort_values(ascending=False)
     total_courses = len(df_sorted)
     core_courses = [c for c in df_sorted.index if '*' in str(c)]
@@ -84,11 +78,10 @@ def run_full_audit(df_num, course_contrib):
     else:
         audit_logs["courses"].append("✅ 无零支撑课程")
         
-    # B2. 核心课程存在性
+    # B2. 核心课程
     if not core_courses:
         audit_logs["courses"].append("⛔ 严重错误：未检测到专业核心课程 (请检查 * 标识)")
     else:
-        # B3. 核心课程排名 (前1/3)
         top_third_threshold = math.ceil(total_courses / 3)
         top_third_courses = df_sorted.index[:top_third_threshold].tolist()
         
@@ -96,7 +89,6 @@ def run_full_audit(df_num, course_contrib):
             if core not in top_third_courses:
                 audit_logs["courses"].append(f"⚠️ 排名预警：专业核心课程《{core}》未进入贡献度前1/3")
         
-        # B4. 边缘课程 (后10名)
         if total_courses > 10:
             bottom_10_courses = df_sorted.index[-10:].tolist()
             for core in core_courses:
@@ -105,62 +97,46 @@ def run_full_audit(df_num, course_contrib):
     
     return audit_logs
 
-# ================= 4. PDF 文本报告生成器 =================
+# ================= 4. PDF 报告生成器 =================
 def create_audit_report_figure(audit_logs):
-    """
-    创建一个包含审核文字的 Matplotlib 图表，作为 PDF 第一页
-    """
-    fig = plt.figure(figsize=(11.69, 16.53)) # A3/A4 比例，稍微长一点容纳更多文字
+    fig = plt.figure(figsize=(11.69, 16.53))
     plt.axis('off')
     
-    # 标题
-    plt.text(0.5, 0.95, "智能审核诊断报告", ha='center', fontsize=22, weight='bold')
-    plt.text(0.5, 0.92, "西京学院商学院 | 教学管理工具", ha='center', fontsize=14, color='gray')
+    plt.text(0.5, 0.95, "智能审核诊断报告", ha='center', fontsize=24, weight='bold')
+    plt.text(0.5, 0.92, "西京学院 | 人才培养方案修订辅助管理工具", ha='center', fontsize=14, color='gray')
     
-    # 绘制游标
     cursor_y = 0.88
     line_height = 0.025
     
-    # --- 板块 1: 毕业要求指标点审核 ---
     plt.text(0.1, cursor_y, "【毕业要求指标点审核】", fontsize=16, weight='bold', color='#2E8B57')
     cursor_y -= 0.04
-    
     if not audit_logs["indicators"]:
         plt.text(0.12, cursor_y, "无数据", fontsize=12)
-    
     for log in audit_logs["indicators"]:
         color = 'red' if '❌' in log else 'black'
         if '✅' in log: color = 'green'
-        
-        # 简单换行处理
         wrapped_lines = textwrap.wrap(log, width=60)
         for line in wrapped_lines:
             plt.text(0.12, cursor_y, line, fontsize=12, color=color)
             cursor_y -= line_height
-            
     cursor_y -= 0.04
     
-    # --- 板块 2: 课程贡献度审核 ---
     plt.text(0.1, cursor_y, "【课程贡献度审核】", fontsize=16, weight='bold', color='#4682B4')
     cursor_y -= 0.04
-    
     for log in audit_logs["courses"]:
         color = 'black'
         if '❌' in log or '⛔' in log or '🚫' in log: color = 'red'
-        elif '⚠️' in log: color = '#B8860B' # 暗金色
+        elif '⚠️' in log: color = '#B8860B'
         elif '✅' in log: color = 'green'
-        
         wrapped_lines = textwrap.wrap(log, width=60)
         for line in wrapped_lines:
             plt.text(0.12, cursor_y, line, fontsize=12, color=color)
             cursor_y -= line_height
 
-    # 底部说明
     plt.text(0.5, 0.05, "本报告由系统自动生成，仅供参考", ha='center', fontsize=10, color='gray')
-    
     return fig
 
-# ================= 5. 主程序逻辑 =================
+# ================= 5. 主程序 =================
 def generate_analysis(uploaded_file):
     try:
         if uploaded_file.name.endswith('.csv'):
@@ -172,13 +148,11 @@ def generate_analysis(uploaded_file):
         req_data = df_raw.iloc[:, 2:] 
         req_names = req_data.columns.tolist()
         
-        # 常规数值化
         df_num = req_data.copy()
         for col in df_num.columns:
             df_num[col] = df_num[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP.get(x, 0)).fillna(0)
         df_num.index = course_names
         
-        # 特殊数值化 (H=10)
         df_num_special = req_data.copy()
         for col in df_num_special.columns:
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
@@ -189,7 +163,6 @@ def generate_analysis(uploaded_file):
         course_contribution = df_num.sum(axis=1)
         req_importance_special = df_num_special.sum(axis=0)
         
-        # === 执行审核 (获取日志) ===
         audit_logs = run_full_audit(df_num, course_contribution)
         
         return df_num, df_display_labels, course_names, req_names, course_contribution, req_importance_special, audit_logs
@@ -221,14 +194,14 @@ if uploaded_file is not None:
         
         with PdfPages(pdf_buffer) as pdf:
             
-            # === 【新增】PDF 第一页：审核报告 ===
+            # 1. 审核报告页
             audit_fig = create_audit_report_figure(audit_logs)
             pdf.savefig(audit_fig, bbox_inches='tight')
-            plt.close(audit_fig) # 释放内存
+            plt.close(audit_fig)
             
             tab1, tab2, tab3, tab4 = st.tabs(["矩阵热力图", "支撑网络图", "课程贡献排名", "指标重要度"])
             
-            # --- 图表1 ---
+            # 2. 矩阵图
             with tab1:
                 st.subheader(f"课程 - 毕业要求支撑矩阵")
                 fig1, ax1 = plt.subplots(figsize=(heatmap_width, max(10, len(course_names) * 0.6)))
@@ -239,43 +212,91 @@ if uploaded_file is not None:
                 ax1.set_ylabel('课程名称', fontsize=12)
                 ax1.xaxis.tick_top(); ax1.xaxis.set_label_position('top') 
                 ax1.set_xticklabels(req_names, rotation=label_rotation, ha='left', fontsize=font_size)
-                st.pyplot(fig1) 
-                pdf.savefig(fig1, bbox_inches='tight') 
+                st.pyplot(fig1); pdf.savefig(fig1, bbox_inches='tight')
 
-            # --- 图表2 ---
+            # --- 图表2：网络图 (【核心升级】：双柱排序布局) ---
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                net_height = max(12, num_reqs * 0.6)
-                fig2, ax2 = plt.subplots(figsize=(16, net_height))
+                
+                # A. 计算用于排序的 H 贡献度 (H=10, M=0, L=0)
+                # 使用 df_num 中 H=3 来判断
+                h_counts = (df_num == 3).sum(axis=1)
+                h_contrib_for_sort = h_counts * 10
+                # 按贡献度从小到大排序 (Left Side)
+                sorted_course_names = h_contrib_for_sort.sort_values(ascending=True).index.tolist()
+                
+                # B. 构建自定义坐标系 (pos)
+                pos = {}
+                
+                # 左侧：课程 (x=0, y=0~1 均匀分布)
+                # 从小到大排，意味着贡献小的在底部(y=0)，大的在顶部(y=1)
+                y_course = np.linspace(0, 1, len(sorted_course_names))
+                for i, course in enumerate(sorted_course_names):
+                    pos[course] = np.array([-1, y_course[i]]) # x=-1 放在左边
+                
+                # 右侧：指标 (x=1, y=0~1 均匀分布)
+                # 保持原顺序
+                y_req = np.linspace(0, 1, len(req_names))
+                for i, req in enumerate(req_names):
+                    pos[req] = np.array([1, y_req[i]]) # x=1 放在右边
+                
+                # C. 绘图
+                # 动态调整高度，防止密集
+                net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
+                fig2, ax2 = plt.subplots(figsize=(14, net_height))
+                
                 G = nx.Graph()
-                G.add_nodes_from(course_names, bipartite=0); G.add_nodes_from(req_names, bipartite=1)
+                G.add_nodes_from(sorted_course_names, bipartite=0)
+                G.add_nodes_from(req_names, bipartite=1)
+                
                 edges, colors, widths = [], [], []
-                for c in course_names:
+                # 重新遍历连线，注意要基于排好序的课程来画，或者直接遍历全集
+                for c in sorted_course_names:
                     for r in req_names:
                         w = df_num.loc[c, r]
                         if w > 0:
-                            G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.8)
-                pos = nx.bipartite_layout(G, course_names)
-                req_node_sizes = [300 + G.degree(r) * 100 for r in req_names]
-                nx.draw_networkx_nodes(G, pos, nodelist=course_names, node_color='#87CEEB', node_size=300, ax=ax2)
+                            G.add_edge(c, r); edges.append((c, r)); colors.append(COLOR_MAP[w]); widths.append(w * 0.6)
+                
+                # 绘制节点
+                # 课程节点 (左)
+                nx.draw_networkx_nodes(G, pos, nodelist=sorted_course_names, node_color='#87CEEB', node_size=200, ax=ax2)
+                # 指标节点 (右) - 大小随度数变化
+                req_node_sizes = [300 + G.degree(r) * 80 for r in req_names]
                 nx.draw_networkx_nodes(G, pos, nodelist=req_names, node_color='#90EE90', node_size=req_node_sizes, ax=ax2)
-                line_alpha = 0.4 if num_reqs > 30 else 0.6
+                
+                # 绘制连线
+                line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
-                nx.draw_networkx_labels(G, pos, labels={n:n for n in course_names}, font_family=NETWORK_FONT, font_size=8, ax=ax2, bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
-                nx.draw_networkx_labels(G, pos, labels={n:n for n in req_names}, font_family=NETWORK_FONT, font_size=8 if num_reqs > 30 else 10, ax=ax2, bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
-                ax2.axis('off'); st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
+                
+                # 绘制标签 (Labels)
+                # 左侧标签 (居左对齐)
+                label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
+                nx.draw_networkx_labels(G, label_pos_left, labels={n:n for n in sorted_course_names}, 
+                                      font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right',
+                                      bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
+                
+                # 右侧标签 (居右对齐)
+                label_pos_right = {n: (x+0.05, y) for n, (x, y) in pos.items() if n in req_names}
+                right_font = 8 if num_reqs > 30 else 10
+                nx.draw_networkx_labels(G, label_pos_right, labels={n:n for n in req_names}, 
+                                      font_family=NETWORK_FONT, font_size=right_font, ax=ax2, horizontalalignment='left',
+                                      bbox=dict(facecolor='white', edgecolor='none', alpha=0.7, pad=0))
+                
+                # 调整画布范围，留出文字空间
+                ax2.set_xlim(-1.5, 1.5)
+                ax2.set_ylim(-0.05, 1.05)
+                ax2.axis('off')
+                
+                st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3 (使用 audit_logs 显示网页端警告) ---
+            # 4. 课程贡献度
             with tab3:
                 st.subheader("课程贡献度排名")
-                
-                # 网页端显示审核信息
                 for log in audit_logs["courses"]:
                     if '❌' in log or '⛔' in log or '🚫' in log: st.error(log)
                     elif '⚠️' in log: st.warning(log)
                     else: st.success(log)
                 st.markdown("---")
-
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
                 sorted_contrib_asc = course_contrib.sort_values(ascending=True)
                 bar_colors = []
@@ -285,7 +306,6 @@ if uploaded_file is not None:
                     if clean_name in GEN_ED_COURSES: bar_colors.append('#D3D3D3'); text_colors.append('#808080')
                     elif '*' in clean_name: bar_colors.append('#FFD700'); text_colors.append('#B8860B')
                     else: bar_colors.append('#4682B4'); text_colors.append('black')
-
                 bars = ax3.barh(sorted_contrib_asc.index, sorted_contrib_asc.values, color=bar_colors, edgecolor='none', alpha=0.9)
                 for label, color in zip(ax3.get_yticklabels(), text_colors):
                     label.set_color(color)
@@ -296,20 +316,16 @@ if uploaded_file is not None:
                 ax3.set_xlabel("贡献度分值 (常规权重: H=3, M=2, L=1)")
                 st.pyplot(fig3); pdf.savefig(fig3, bbox_inches='tight')
 
-            # --- 图表4 (使用 audit_logs 显示网页端警告) ---
+            # 5. 指标重要度
             with tab4:
                 st.subheader("毕业要求重要程度")
-                
-                # 网页端显示审核信息
                 has_error = False
                 for log in audit_logs["indicators"]:
                     if '❌' in log: 
                         st.error(log)
                         has_error = True
-                if not has_error:
-                    st.success("✅ 所有指标点均达标")
+                if not has_error: st.success("✅ 所有指标点均达标")
                 st.markdown("---")
-
                 fig4_height = max(6, num_reqs * 0.4) 
                 fig4, ax4 = plt.subplots(figsize=(10, fig4_height))
                 sorted_imp = req_imp_special.sort_values(ascending=True)
@@ -323,7 +339,7 @@ if uploaded_file is not None:
         download_btn_placeholder.download_button(
             label="📥 点击下载最终版报告 (含诊断书)",
             data=pdf_buffer.getvalue(),
-            file_name="西京学院_专业课程体系诊断报告.pdf",
+            file_name="西京学院_智能审核诊断报告.pdf",
             mime="application/pdf",
             type="primary"
         )
