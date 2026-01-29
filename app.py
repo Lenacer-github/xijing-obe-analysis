@@ -162,9 +162,8 @@ def generate_analysis(uploaded_file):
 
         df_display_labels = df_num.applymap(lambda x: REVERSE_LABEL_MAP.get(x, ''))
         
-        # 计算
-        course_contribution = df_num.sum(axis=1) # 3H+2M+1L
-        req_importance_special = df_num_special.sum(axis=0) # H*10
+        course_contribution = df_num.sum(axis=1)
+        req_importance_special = df_num_special.sum(axis=0)
         
         audit_logs = run_full_audit(df_num, course_contribution)
         
@@ -220,14 +219,12 @@ if uploaded_file is not None:
             # 3. 网络图
             with tab2:
                 st.subheader("支撑关系网络拓扑")
-                # 排序
                 sorted_course_names = course_contrib.sort_values(ascending=True).index.tolist()
                 sorted_course_values = [course_contrib[c] for c in sorted_course_names]
                 course_node_sizes = [100 + v * 15 for v in sorted_course_values]
                 req_values = [req_imp_special[r] for r in req_names]
                 req_node_sizes = [100 + v * 8 for v in req_values]
 
-                # 坐标
                 pos = {}
                 y_course = np.linspace(0, 1, len(sorted_course_names))
                 for i, course in enumerate(sorted_course_names):
@@ -236,7 +233,6 @@ if uploaded_file is not None:
                 for i, req in enumerate(req_names):
                     pos[req] = np.array([1, y_req[i]])
                 
-                # 绘图
                 net_height = max(12, max(len(course_names), len(req_names)) * 0.5)
                 fig2, ax2 = plt.subplots(figsize=(14, net_height))
                 G = nx.Graph()
@@ -253,7 +249,6 @@ if uploaded_file is not None:
                 line_alpha = 0.3 if num_reqs > 30 else 0.5
                 nx.draw_networkx_edges(G, pos, edge_color=colors, width=widths, alpha=line_alpha, ax=ax2)
                 
-                # 标签
                 left_labels_dict = {c: f"{c} ({int(course_contrib[c])})" for c in sorted_course_names}
                 label_pos_left = {n: (x-0.05, y) for n, (x, y) in pos.items() if n in sorted_course_names}
                 nx.draw_networkx_labels(G, label_pos_left, labels=left_labels_dict, font_family=NETWORK_FONT, font_size=8, ax=ax2, horizontalalignment='right', bbox=dict(facecolor='white', edgecolor='none', alpha=0.6, pad=0))
@@ -264,7 +259,7 @@ if uploaded_file is not None:
                 ax2.set_title("支撑关系网络拓扑图\n左侧依据：综合贡献 (H*3+M*2+L*1) | 右侧依据：重要度 (H*10)", fontsize=14)
                 st.pyplot(fig2); pdf.savefig(fig2, bbox_inches='tight')
 
-            # --- 图表3：课程贡献度 (【核心修复】：图例布局优化) ---
+            # --- 图表3：课程贡献度 (【核心修复】：绝对坐标定位标题与图例) ---
             with tab3:
                 st.subheader("课程贡献度排名")
                 for log in audit_logs["courses"]:
@@ -272,7 +267,6 @@ if uploaded_file is not None:
                     elif '⚠️' in log: st.warning(log)
                     else: st.success(log)
                 st.markdown("---")
-                
                 fig3, ax3 = plt.subplots(figsize=(10, max(8, len(course_names) * 0.5)))
                 sorted_contrib_asc = course_contrib.sort_values(ascending=True)
                 bar_colors = []
@@ -282,7 +276,6 @@ if uploaded_file is not None:
                     if clean_name in GEN_ED_COURSES: bar_colors.append('#D3D3D3'); text_colors.append('#808080')
                     elif '*' in clean_name: bar_colors.append('#FFD700'); text_colors.append('#B8860B')
                     else: bar_colors.append('#4682B4'); text_colors.append('black')
-                
                 bars = ax3.barh(sorted_contrib_asc.index, sorted_contrib_asc.values, color=bar_colors, edgecolor='none', alpha=0.9)
                 for label, color in zip(ax3.get_yticklabels(), text_colors):
                     label.set_color(color)
@@ -290,10 +283,10 @@ if uploaded_file is not None:
                 for i, v in enumerate(sorted_contrib_asc):
                     ax3.text(v + 0.2, i, str(int(v)), va='center', fontweight='bold', color='black')
                 
-                # 【修改处】大大增加标题间距 (pad=50)，为图例腾出空间
-                ax3.set_title("课程贡献度排名", fontsize=16, pad=50)
+                # 【修改处】使用 y=1.20 强制推高标题，不依赖 pad
+                ax3.set_title("课程贡献度排名", fontsize=16, y=1.20)
                 
-                # 【修改处】图例居中置顶 (lower center 锚定在 1.02 高度)
+                # 【修改处】图例位置保持在 y=1.02 (轴上方)
                 legend_elements = [
                     mpatches.Patch(facecolor='#FFD700', edgecolor='none', label='核心课程'),
                     mpatches.Patch(facecolor='#D3D3D3', edgecolor='none', label='通识课程'),
