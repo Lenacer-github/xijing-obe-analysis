@@ -160,7 +160,7 @@ def generate_analysis(uploaded_file):
             df_num_special[col] = df_num_special[col].astype(str).str.strip().map(lambda x: WEIGHT_MAP_SPECIAL.get(x, 0)).fillna(0)
         df_num_special.index = course_names
 
-        df_display_labels = df_num.applymap(lambda x: REVERSE_LABEL_MAP.get(x, ''))
+        df_display_labels = df_num.apply(lambda col: col.map(lambda x: REVERSE_LABEL_MAP.get(x, '')))
         
         course_contribution = df_num.sum(axis=1)
         req_importance_special = df_num_special.sum(axis=0)
